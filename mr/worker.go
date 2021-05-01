@@ -3,9 +3,13 @@ package mr
 import (
 	"fmt"
 	"hash/fnv"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/rpc"
+	"os"
+	"sort"
+	"strconv"
 	"time"
 )
 
@@ -17,6 +21,14 @@ type KeyValue struct {
 	Value string
 }
 
+// for sorting by key.
+type ByKey []KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
+
 //
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -27,10 +39,33 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+// Returns True if success else returns false
 func mapFunc(mapf func(string, string) []KeyValue,
-	taskType int,
-	filename string) {
-	time.Sleep(5 * time.Second)
+	taskNum int,
+	filename string) bool {
+
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatalf("cannot open %v", filename)
+		return false
+	}
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", filename)
+		return false
+	}
+	file.Close()
+	kva := mapf(filename, string(content))
+
+	sort.Sort(ByKey(kva))
+	oname := "tmp/mr-" + strconv.Itoa(taskNum) + "-0"
+	ofile, _ := os.Create(oname)
+
+	for key, val := range kva {
+		fmt.Fprintf(ofile, "%v %v\n", key, val)
+	}
+
+	return true
 }
 
 //
@@ -46,13 +81,16 @@ func Worker(mapf func(string, string) []KeyValue,
 		// Ask master for task
 		switch reply := callGetTask(workerId); reply.TaskType {
 		case 0:
-			fmt.Printf("[Worker %v]: Recieved map task from master\n", workerId)
-			mapFunc(mapf, reply.TaskNum, reply.Filename)
-			callFinishTask(reply.TaskType, workerId, reply.TaskNum)
+			fmt.Printf("[Worker %v]: Recieved map task %v from master\n",
+				workerId, reply.TaskNum)
+			ok := mapFunc(mapf, reply.TaskNum, reply.Filename)
+			if ok {
+				callFinishTask(reply.TaskType, workerId, reply.TaskNum)
+			}
 			// Map
 		case 1:
-			fmt.Printf("[Worker %v]: Recieved reduce task from master\n",
-				workerId)
+			fmt.Printf("[Worker %v]: Recieved reduce task %v from master\n",
+				reply.TaskNum, workerId)
 			// Reduce
 		default:
 			// Sleep for 3 seconds
