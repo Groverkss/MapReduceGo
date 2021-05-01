@@ -69,7 +69,7 @@ func mapFunc(mapf func(string, string) []KeyValue,
 	}
 
 	for i := 0; i < partitions; i++ {
-		oname := "tmp/mr-" + strconv.Itoa(taskNum) + "-" + strconv.Itoa(i)
+		oname := "mr-" + strconv.Itoa(taskNum) + "-" + strconv.Itoa(i)
 		ofile, _ := os.Create(oname)
 		enc := json.NewEncoder(ofile)
 		enc.Encode(intermediate[i])
@@ -86,7 +86,7 @@ func reduceFunc(reducef func(string, []string) string,
 
 	kva := make(map[string][]string)
 	for i := 0; i < partitions; i++ {
-		filename := fmt.Sprintf("tmp/mr-%v-%v", i, taskNum)
+		filename := fmt.Sprintf("mr-%v-%v", i, taskNum)
 		file, err := os.Open(filename)
 		if err != nil {
 			log.Fatalf("cannot open %v", filename)
@@ -112,7 +112,7 @@ func reduceFunc(reducef func(string, []string) string,
 		output = append(output, KeyValue{key, reducef(key, val)})
 	}
 
-	filename := fmt.Sprintf("tmp/mr-out-%v", taskNum)
+	filename := fmt.Sprintf("mr-out-%v", taskNum)
 	file, err := os.Create(filename)
 	if err != nil {
 		log.Fatalf("cannot open %v", filename)

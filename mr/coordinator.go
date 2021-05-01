@@ -8,6 +8,7 @@ import (
 	"net/rpc"
 	"os"
 	"sync"
+	"time"
 )
 
 type mapTask struct {
@@ -36,6 +37,29 @@ type Coordinator struct {
 }
 
 // Your code here -- RPC handlers for the worker to call.
+func waitCheck(c *Coordinator, taskType int, taskNum int) {
+	time.Sleep(10 * time.Second)
+
+	if taskType == 0 {
+		c.mapLock.Lock()
+		if !c.mapTasks[taskNum].done {
+			defer fmt.Printf("Worker %v took too long to respond for map task %v\n",
+				c.mapTasks[taskNum].worker, taskNum)
+			c.mapTasks[taskNum].worker = -1
+			c.availableMapTasks[taskNum] = taskNum
+		}
+		c.mapLock.Unlock()
+	} else {
+		c.reduceLock.Lock()
+		if !c.reduceTasks[taskNum].done {
+			defer fmt.Printf("Worker %v took too long to respond for reduce task %v\n",
+				c.reduceTasks[taskNum].worker, taskNum)
+			c.reduceTasks[taskNum].worker = -1
+			c.availableReduceTasks[taskNum] = taskNum
+		}
+		c.reduceLock.Unlock()
+	}
+}
 
 //
 // an example RPC handler.
@@ -63,7 +87,7 @@ func (c *Coordinator) GetTask(args *GetArgs, reply *GetReply) error {
 		delete(c.availableMapTasks, id)
 
 		// Run waiting thread
-		// defer go waitFor10Sec()
+		go waitCheck(c, 0, id)
 
 		c.mapLock.Unlock()
 
@@ -95,7 +119,7 @@ func (c *Coordinator) GetTask(args *GetArgs, reply *GetReply) error {
 		delete(c.availableReduceTasks, id)
 
 		// Run waiting thread
-		// defer go waitFor10Sec()
+		go waitCheck(c, 1, id)
 
 		c.reduceLock.Unlock()
 
