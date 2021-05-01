@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
 type mapTask struct {
@@ -29,6 +30,9 @@ type Coordinator struct {
 
 	mapDone    bool
 	reduceDone bool
+
+	mapLock    sync.Mutex
+	reduceLock sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -41,7 +45,11 @@ type Coordinator struct {
 func (c *Coordinator) GetTask(args *GetArgs, reply *GetReply) error {
 	fmt.Printf("Worker %v requesting for task\n", args.WorkerId)
 	// If map task available, send map task
+
+	c.mapLock.Lock()
 	for id, _ := range c.availableMapTasks {
+		defer fmt.Printf("Map Task %v given to worker %v\n", id, args.WorkerId)
+
 		// Populate reply
 		reply.TaskType = 0
 		reply.TaskNum = id
@@ -54,12 +62,13 @@ func (c *Coordinator) GetTask(args *GetArgs, reply *GetReply) error {
 		delete(c.availableMapTasks, id)
 
 		// Run waiting thread
-		// go waitFor10Sec()
+		// defer go waitFor10Sec()
 
-		fmt.Printf("Map Task %v given to worker %v\n", id, args.WorkerId)
+		c.mapLock.Unlock()
 
 		return nil
 	}
+	c.mapLock.Unlock()
 
 	// Not task available right now
 	if !c.mapDone {
@@ -81,6 +90,8 @@ func (c *Coordinator) FinishTask(args *FinishArgs, reply *FinishReply) error {
 
 	if args.TaskType == 0 {
 		// Map task finished
+		c.mapLock.Lock()
+		defer c.mapLock.Unlock()
 		if c.mapTasks[args.TaskNum].worker == args.WorkerId {
 			fmt.Printf("Worker %v finished map task %v\n",
 				args.WorkerId, args.TaskNum)
@@ -93,6 +104,8 @@ func (c *Coordinator) FinishTask(args *FinishArgs, reply *FinishReply) error {
 		return nil
 	} else {
 		// Reduce task finished
+		c.reduceLock.Lock()
+		defer c.reduceLock.Unlock()
 		if c.reduceTasks[args.TaskNum].worker == args.WorkerId {
 			fmt.Printf("Worker %v finished reduce task %v\n",
 				args.WorkerId, args.TaskNum)
@@ -127,10 +140,7 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := false
-
-	// Your code here.
-
+	ret := c.mapDone && c.reduceDone
 	return ret
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"math/rand"
 	"net/rpc"
 	"time"
 )
@@ -29,6 +30,7 @@ func ihash(key string) int {
 func mapFunc(mapf func(string, string) []KeyValue,
 	taskType int,
 	filename string) {
+	time.Sleep(5 * time.Second)
 }
 
 //
@@ -37,7 +39,8 @@ func mapFunc(mapf func(string, string) []KeyValue,
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	workerId := 0
+	rand.Seed(time.Now().UnixNano())
+	workerId := int(rand.Int31())
 
 	for {
 		// Ask master for task
@@ -52,9 +55,9 @@ func Worker(mapf func(string, string) []KeyValue,
 				workerId)
 			// Reduce
 		default:
-			// Sleep for a minute
+			// Sleep for 3 seconds
 			fmt.Printf("[Worker %v]: No available task from master\n", workerId)
-			time.Sleep(time.Second)
+			time.Sleep(3 * time.Second)
 		}
 	}
 }
