@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"io/ioutil"
@@ -42,6 +43,7 @@ func ihash(key string) int {
 // Returns True if success else returns false
 func mapFunc(mapf func(string, string) []KeyValue,
 	taskNum int,
+	partitions int,
 	filename string) bool {
 
 	file, err := os.Open(filename)
@@ -58,11 +60,20 @@ func mapFunc(mapf func(string, string) []KeyValue,
 	kva := mapf(filename, string(content))
 
 	sort.Sort(ByKey(kva))
-	oname := "tmp/mr-" + strconv.Itoa(taskNum) + "-0"
-	ofile, _ := os.Create(oname)
 
-	for key, val := range kva {
-		fmt.Fprintf(ofile, "%v %v\n", key, val)
+	intermediate := make(map[int][]KeyValue)
+
+	for _, keyval := range kva {
+		keyhash := ihash(keyval.Key) % partitions
+		intermediate[keyhash] = append(intermediate[keyhash], keyval)
+	}
+
+	for i := 0; i < partitions; i++ {
+		oname := "tmp/mr-" + strconv.Itoa(taskNum) + "-" + strconv.Itoa(i)
+		ofile, _ := os.Create(oname)
+		enc := json.NewEncoder(ofile)
+		enc.Encode(intermediate[i])
+		ofile.Close()
 	}
 
 	return true
@@ -83,7 +94,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		case 0:
 			fmt.Printf("[Worker %v]: Recieved map task %v from master\n",
 				workerId, reply.TaskNum)
-			ok := mapFunc(mapf, reply.TaskNum, reply.Filename)
+			ok := mapFunc(mapf, reply.TaskNum, reply.Partitions, reply.Filename)
 			if ok {
 				callFinishTask(reply.TaskType, workerId, reply.TaskNum)
 			}

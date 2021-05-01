@@ -48,12 +48,13 @@ func (c *Coordinator) GetTask(args *GetArgs, reply *GetReply) error {
 
 	c.mapLock.Lock()
 	for id, _ := range c.availableMapTasks {
-		defer fmt.Printf("Map Task %v given to worker %v\n", id, args.WorkerId)
+		fmt.Printf("Map Task %v given to worker %v\n", id, args.WorkerId)
 
 		// Populate reply
 		reply.TaskType = 0
 		reply.TaskNum = id
 		reply.Filename = c.mapTasks[id].filename
+		reply.Partitions = len(c.reduceTasks)
 
 		// Fill in maptask details
 		c.mapTasks[id].worker = args.WorkerId
@@ -70,7 +71,7 @@ func (c *Coordinator) GetTask(args *GetArgs, reply *GetReply) error {
 	}
 	c.mapLock.Unlock()
 
-	// Not task available right now
+	// No task available right now
 	if !c.mapDone {
 		fmt.Printf("No tasks available for worker %v\n", args.WorkerId)
 		reply.TaskType = 2
@@ -82,12 +83,10 @@ func (c *Coordinator) GetTask(args *GetArgs, reply *GetReply) error {
 	reply.TaskType = 2
 	return nil
 
-	// Not task available right now
+	// No task available right now
 }
 
 func (c *Coordinator) FinishTask(args *FinishArgs, reply *FinishReply) error {
-	// TODO: Add locks
-
 	if args.TaskType == 0 {
 		// Map task finished
 		c.mapLock.Lock()

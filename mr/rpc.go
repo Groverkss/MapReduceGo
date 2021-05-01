@@ -22,6 +22,9 @@ type GetReply struct {
 
 	// map - name of file for task
 	Filename string
+
+	// map - number of partitions
+	Partitions int
 }
 
 type FinishArgs struct {
