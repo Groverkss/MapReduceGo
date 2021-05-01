@@ -14,7 +14,7 @@ type GetArgs struct {
 }
 
 type GetReply struct {
-	// 0 - map, 1 - reduce, 2 - not rn
+	// 0 - map, 1 - reduce, 2 - not rn, 3 - done
 	TaskType int
 
 	// map - task num of map task, reduce - task num of reduce task

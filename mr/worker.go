@@ -79,6 +79,53 @@ func mapFunc(mapf func(string, string) []KeyValue,
 	return true
 }
 
+// Returns True if success else returns false
+func reduceFunc(reducef func(string, []string) string,
+	taskNum int,
+	partitions int) bool {
+
+	kva := make(map[string][]string)
+	for i := 0; i < partitions; i++ {
+		filename := fmt.Sprintf("tmp/mr-%v-%v", i, taskNum)
+		file, err := os.Open(filename)
+		if err != nil {
+			log.Fatalf("cannot open %v", filename)
+			return false
+		}
+
+		dec := json.NewDecoder(file)
+		var kv []KeyValue
+		if err := dec.Decode(&kv); err != nil {
+			log.Fatalf("cannot read %v", filename)
+			return false
+		}
+
+		for _, keyval := range kv {
+			kva[keyval.Key] = append(kva[keyval.Key], keyval.Value)
+		}
+
+		file.Close()
+	}
+
+	var output []KeyValue
+	for key, val := range kva {
+		output = append(output, KeyValue{key, reducef(key, val)})
+	}
+
+	filename := fmt.Sprintf("tmp/mr-out-%v", taskNum)
+	file, err := os.Create(filename)
+	if err != nil {
+		log.Fatalf("cannot open %v", filename)
+		return false
+	}
+
+	for _, keyval := range output {
+		fmt.Fprintf(file, "%v %v\n", keyval.Key, keyval.Value)
+	}
+
+	return true
+}
+
 //
 // main/mrworker.go calls this function.
 //
@@ -92,17 +139,23 @@ func Worker(mapf func(string, string) []KeyValue,
 		// Ask master for task
 		switch reply := callGetTask(workerId); reply.TaskType {
 		case 0:
+			// Map
 			fmt.Printf("[Worker %v]: Recieved map task %v from master\n",
 				workerId, reply.TaskNum)
 			ok := mapFunc(mapf, reply.TaskNum, reply.Partitions, reply.Filename)
 			if ok {
 				callFinishTask(reply.TaskType, workerId, reply.TaskNum)
 			}
-			// Map
 		case 1:
-			fmt.Printf("[Worker %v]: Recieved reduce task %v from master\n",
-				reply.TaskNum, workerId)
 			// Reduce
+			fmt.Printf("[Worker %v]: Recieved reduce task %v from master\n",
+				workerId, reply.TaskNum)
+			ok := reduceFunc(reducef, reply.TaskNum, reply.Partitions)
+			if ok {
+				callFinishTask(reply.TaskType, workerId, reply.TaskNum)
+			}
+		case 3:
+			return
 		default:
 			// Sleep for 3 seconds
 			fmt.Printf("[Worker %v]: No available task from master\n", workerId)

@@ -28,8 +28,8 @@ type Coordinator struct {
 	availableMapTasks    map[int]int
 	availableReduceTasks map[int]int
 
-	mapDone    bool
-	reduceDone bool
+	mapDoneTasks    int
+	reduceDoneTasks int
 
 	mapLock    sync.Mutex
 	reduceLock sync.Mutex
@@ -71,49 +71,81 @@ func (c *Coordinator) GetTask(args *GetArgs, reply *GetReply) error {
 	}
 	c.mapLock.Unlock()
 
-	// No task available right now
-	if !c.mapDone {
+	// All map tasks not finished yet
+	if c.mapDoneTasks != len(c.mapTasks) {
 		fmt.Printf("No tasks available for worker %v\n", args.WorkerId)
 		reply.TaskType = 2
 		return nil
 	}
 
-	// TODO
+	c.reduceLock.Lock()
 	// If all map tasks over and reduce task available send reduce task
-	reply.TaskType = 2
-	return nil
+	for id, _ := range c.availableReduceTasks {
+		fmt.Printf("Reduce Task %v given to worker %v\n", id, args.WorkerId)
 
-	// No task available right now
+		// Populate reply
+		reply.TaskType = 1
+		reply.TaskNum = id
+		reply.Partitions = len(c.mapTasks)
+
+		// Fill in reduce details
+		c.reduceTasks[id].worker = args.WorkerId
+
+		// Remove from available
+		delete(c.availableReduceTasks, id)
+
+		// Run waiting thread
+		// defer go waitFor10Sec()
+
+		c.reduceLock.Unlock()
+
+		return nil
+	}
+	c.reduceLock.Unlock()
+
+	if c.reduceDoneTasks != len(c.reduceTasks) {
+		// No task available right now
+		fmt.Printf("No tasks available for worker %v\n", args.WorkerId)
+		reply.TaskType = 2
+		return nil
+	} else {
+		// No task available right now
+		fmt.Printf("All tasks completed, quiting worker %v\n", args.WorkerId)
+		reply.TaskType = 3
+		return nil
+	}
 }
 
 func (c *Coordinator) FinishTask(args *FinishArgs, reply *FinishReply) error {
 	if args.TaskType == 0 {
 		// Map task finished
 		c.mapLock.Lock()
-		defer c.mapLock.Unlock()
 		if c.mapTasks[args.TaskNum].worker == args.WorkerId {
 			fmt.Printf("Worker %v finished map task %v\n",
 				args.WorkerId, args.TaskNum)
 			c.mapTasks[args.TaskNum].done = true
 			c.mapTasks[args.TaskNum].worker = -1
+			c.mapDoneTasks++
 		} else {
 			fmt.Printf("Worker %v finished map task %v too late\n",
 				args.WorkerId, args.TaskNum)
 		}
+		c.mapLock.Unlock()
 		return nil
 	} else {
 		// Reduce task finished
 		c.reduceLock.Lock()
-		defer c.reduceLock.Unlock()
 		if c.reduceTasks[args.TaskNum].worker == args.WorkerId {
 			fmt.Printf("Worker %v finished reduce task %v\n",
 				args.WorkerId, args.TaskNum)
 			c.reduceTasks[args.TaskNum].done = true
 			c.reduceTasks[args.TaskNum].worker = -1
+			c.reduceDoneTasks++
 		} else {
 			fmt.Printf("Worker %v finished reduce task %v too late\n",
 				args.WorkerId, args.TaskNum)
 		}
+		c.reduceLock.Unlock()
 		return nil
 	}
 }
@@ -139,7 +171,12 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := c.mapDone && c.reduceDone
+	c.mapLock.Lock()
+	c.reduceLock.Lock()
+	ret := c.mapDoneTasks == len(c.mapTasks) &&
+		c.reduceDoneTasks == len(c.reduceTasks)
+	c.reduceLock.Unlock()
+	c.mapLock.Unlock()
 	return ret
 }
 
@@ -151,11 +188,10 @@ func (c *Coordinator) Done() bool {
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
-	c.mapDone, c.reduceDone = false, false
-
 	// Fill map tasks
 	c.mapTasks = make([]mapTask, len(files))
 	c.availableMapTasks = make(map[int]int)
+	c.mapDoneTasks = 0
 
 	for i, _ := range c.mapTasks {
 		c.mapTasks[i] = mapTask{false, -1, files[i]}
@@ -165,6 +201,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Fill reduce tasks
 	c.reduceTasks = make([]reduceTask, nReduce)
 	c.availableReduceTasks = make(map[int]int)
+	c.reduceDoneTasks = 0
 
 	for i, _ := range c.reduceTasks {
 		c.reduceTasks[i] = reduceTask{false, -1}
